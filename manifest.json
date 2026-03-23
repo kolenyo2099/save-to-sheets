@@ -9,7 +9,11 @@
   },
   "content_scripts": [
     {
-      "matches": ["*://www.google.com/search*"],
+      "matches": [
+        "*://www.google.com/search*",
+        "*://x.com/*",
+        "*://twitter.com/*"
+      ],
       "js": ["content.js"],
       "css": ["content.css"]
     },

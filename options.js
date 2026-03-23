@@ -17,12 +17,18 @@ const AVAILABLE_FIELDS = [
   { key: 'publishDate',     label: 'Published Date',          ctx: 'page' },
   { key: 'canonicalUrl',    label: 'Canonical URL',           ctx: 'page' },
   { key: 'language',        label: 'Page Language',           ctx: 'page' },
+  { key: 'tweetId',         label: 'Tweet ID',                ctx: 'tweet' },
+  { key: 'tweetText',       label: 'Tweet Text',              ctx: 'tweet' },
+  { key: 'authorName',      label: 'Author Display Name',     ctx: 'tweet' },
+  { key: 'authorUsername',  label: 'Author @handle',          ctx: 'tweet' },
+  { key: 'tweetDate',       label: 'Tweet Date/Time',         ctx: 'tweet' },
 ];
 
 const CTX_LABELS = {
   all:    'All contexts',
   search: 'Search only',
   page:   'Save page',
+  tweet:  'Tweet (X.com)',
 };
 
 // ── Auto-map a column name to a known field key ───────────────────────────────
@@ -46,6 +52,11 @@ function autoMapField(name) {
     'published date': 'publishDate', 'publish date': 'publishDate', 'published': 'publishDate',
     'canonical url': 'canonicalUrl', 'canonical': 'canonicalUrl',
     'language': 'language', 'lang': 'language', 'page language': 'language',
+    'tweet id': 'tweetId', 'tweetid': 'tweetId',
+    'tweet text': 'tweetText', 'tweet content': 'tweetText', 'tweet': 'tweetText',
+    'author display name': 'authorName', 'display name': 'authorName',
+    'handle': 'authorUsername', 'username': 'authorUsername', '@handle': 'authorUsername', 'author handle': 'authorUsername',
+    'tweet date': 'tweetDate', 'tweet time': 'tweetDate', 'tweet date/time': 'tweetDate',
   };
   return map[n] || '';
 }
