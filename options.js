@@ -64,7 +64,20 @@ function renderColumns() {
   list.innerHTML = '';
 
   if (localColumns.length === 0) {
-    list.innerHTML = '<p class="hint" style="padding:6px 0 2px;">No columns defined yet. Add columns or detect from your sheet.</p>';
+    list.innerHTML = `
+      <div style="background:#f8f9fa; border:1px solid #dadce0; border-radius:8px; padding:14px 16px;">
+        <p style="font-size:13px; color:#202124; font-weight:500; margin-bottom:6px;">Using default column structure</p>
+        <p style="font-size:12px; color:#5f6368; line-height:1.6;">
+          No custom columns defined. The extension will save in this fixed order:<br>
+          <span style="font-family:monospace; font-size:11px; color:#1a73e8;">
+            ID &nbsp;·&nbsp; Timestamp &nbsp;·&nbsp; Saved By &nbsp;·&nbsp; Query &nbsp;·&nbsp; Title &nbsp;·&nbsp; URL &nbsp;·&nbsp; Snippet
+          </span>
+        </p>
+        <p style="font-size:12px; color:#5f6368; margin-top:6px;">
+          Add columns below to define a custom structure, or click <strong>Detect from Sheet</strong>
+          if your sheet already has a header row.
+        </p>
+      </div>`;
     return;
   }
 
