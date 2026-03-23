@@ -341,8 +341,10 @@ document.getElementById('applyColumnsBtn').addEventListener('click', async () =>
 });
 
 // ── Detect columns from Sheet ─────────────────────────────────────────────────
+// Uses a GET request (calls doGet in the Apps Script) — read-only, safe.
+// Requires the updated Apps Script from Step 2 to be deployed.
 document.getElementById('detectColumnsBtn').addEventListener('click', async () => {
-  const scriptUrl    = document.getElementById('scriptUrl').value.trim();
+  const scriptUrl     = document.getElementById('scriptUrl').value.trim();
   const columnsStatus = document.getElementById('columnsStatus');
 
   if (!scriptUrl) {
@@ -354,52 +356,70 @@ document.getElementById('detectColumnsBtn').addEventListener('click', async () =
   columnsStatus.textContent = '⏳ Reading sheet headers…';
   columnsStatus.style.color = '#5f6368';
 
+  let data;
   try {
-    const res = await fetch(scriptUrl, {
-      method: 'POST',
-      body: JSON.stringify({ action: 'getHeaders' }),
-      headers: { 'Content-Type': 'text/plain' }
-    });
+    const res = await fetch(scriptUrl); // GET → calls doGet()
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-    const data    = await res.json();
-    const headers = (data.headers || []).filter(h => String(h).trim() !== '');
-
-    if (headers.length === 0) {
-      columnsStatus.textContent = '⚠️ No headers found in row 1 of your sheet.';
-      columnsStatus.style.color = '#f9ab00';
-      return;
+    const text = await res.text();
+    try {
+      data = JSON.parse(text);
+    } catch {
+      // Response is HTML, not JSON — script doesn't have doGet (old version)
+      data = null;
     }
-
-    // Build new columns, reusing existing IDs where the name already matches
-    const newColumns = headers.map(name => {
-      const existing = localColumns.find(c => c.name === String(name));
-      return { id: existing ? existing.id : genId(), name: String(name) };
-    });
-
-    // Build new mapping: keep existing where IDs match, otherwise auto-detect
-    const newMapping = {};
-    newColumns.forEach(col => {
-      if (localFieldMapping[col.id]) {
-        newMapping[col.id] = localFieldMapping[col.id];
-      } else {
-        const auto = autoMapField(col.name);
-        if (auto) newMapping[col.id] = auto;
-      }
-    });
-
-    localColumns      = newColumns;
-    localFieldMapping = newMapping;
-    renderColumns();
-
-    columnsStatus.textContent =
-      `✅ Detected ${headers.length} column${headers.length !== 1 ? 's' : ''}. ` +
-      `Review the field mappings, then click Save settings.`;
-    columnsStatus.style.color = '#188038';
-    setTimeout(() => columnsStatus.textContent = '', 7000);
-
   } catch (err) {
-    columnsStatus.textContent = `❌ Failed: ${err.message}`;
+    columnsStatus.textContent = `❌ Network error: ${err.message}`;
     columnsStatus.style.color = '#c5221f';
+    return;
   }
+
+  // Old script returns HTML error page (no doGet function)
+  if (!data || !Array.isArray(data.headers)) {
+    columnsStatus.innerHTML =
+      '❌ Your Apps Script needs to be updated to support this feature. ' +
+      'Copy the new script from <strong>Step 2</strong> above, replace the existing ' +
+      'code in Apps Script, and click <strong>Deploy → Manage deployments → ' +
+      'edit (pencil icon) → update version → Deploy</strong>. ' +
+      'Your URL stays the same.';
+    columnsStatus.style.color = '#c5221f';
+    return;
+  }
+
+  const headers = data.headers.map(String).filter(h => h.trim() !== '');
+
+  if (headers.length === 0) {
+    columnsStatus.textContent =
+      '⚠️ Row 1 of your sheet is empty — no headers to detect. ' +
+      'Add a header row manually or use Apply to Sheet.';
+    columnsStatus.style.color = '#f9ab00';
+    return;
+  }
+
+  // Build new columns, reusing existing IDs where the name already matches
+  const newColumns = headers.map(name => {
+    const existing = localColumns.find(c => c.name === name);
+    return { id: existing ? existing.id : genId(), name };
+  });
+
+  // Keep existing mappings where IDs match; otherwise auto-detect from name
+  const newMapping = {};
+  newColumns.forEach(col => {
+    if (localFieldMapping[col.id]) {
+      newMapping[col.id] = localFieldMapping[col.id];
+    } else {
+      const auto = autoMapField(col.name);
+      if (auto) newMapping[col.id] = auto;
+    }
+  });
+
+  localColumns      = newColumns;
+  localFieldMapping = newMapping;
+  renderColumns();
+
+  columnsStatus.textContent =
+    `✅ Detected ${headers.length} column${headers.length !== 1 ? 's' : ''}. ` +
+    `Review the field mappings, then click Save settings.`;
+  columnsStatus.style.color = '#188038';
+  setTimeout(() => columnsStatus.textContent = '', 7000);
 });
