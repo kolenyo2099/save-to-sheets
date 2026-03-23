@@ -20,31 +20,35 @@ function getCurrentQuery() {
 
 function addSaveButtons() {
   const results = document.querySelectorAll('div.g, div[data-hveid]');
+  // Count already-injected buttons to approximate position offset
+  let positionCounter = document.querySelectorAll('.sts-save-btn').length;
 
   results.forEach(result => {
-    // Avoid double-injecting
     if (result.querySelector('.sts-save-btn')) return;
 
-    const titleEl = result.querySelector('h3');
-    const linkEl = result.querySelector('a[href]');
+    const titleEl   = result.querySelector('h3');
+    const linkEl    = result.querySelector('a[href]');
     const snippetEl = result.querySelector('.VwiC3b, [data-sncf="1"], [data-sncf="2"]');
 
     if (!titleEl || !linkEl) return;
 
-    // Filter out non-result links (e.g. image carousels, ads)
     const href = linkEl.href;
     if (!href || href.startsWith('https://www.google.com')) return;
 
+    positionCounter++;
+    const position = positionCounter; // captured in closure
+
     const btn = document.createElement('button');
     btn.className = 'sts-save-btn';
-    btn.innerHTML = `<span class="sts-icon">💾</span><span class="sts-label">Save</span>`;
+    btn.textContent = '💾';
     btn.title = 'Save to Google Sheets';
 
     btn.addEventListener('click', async (e) => {
       e.preventDefault();
       e.stopPropagation();
 
-      const { scriptUrl, userName, idPrefix } = await chrome.storage.sync.get(['scriptUrl', 'userName', 'idPrefix']);
+      const { scriptUrl, userName, idPrefix, columns, fieldMapping } =
+        await chrome.storage.sync.get(['scriptUrl', 'userName', 'idPrefix', 'columns', 'fieldMapping']);
 
       if (!scriptUrl) {
         showToast('⚙️ Please set your Apps Script URL in the extension options first.', 'warn');
@@ -52,18 +56,32 @@ function addSaveButtons() {
       }
 
       btn.disabled = true;
-      btn.classList.add('sts-saving');
-      btn.innerHTML = `<span class="sts-icon">⏳</span><span class="sts-label">Saving…</span>`;
+      btn.textContent = '⏳';
 
       const id = await generateId(idPrefix, userName);
-      const payload = {
+
+      const fields = {
         id,
-        title: titleEl.textContent.trim(),
-        url: href,
-        snippet: snippetEl ? snippetEl.textContent.trim() : '',
-        query: getCurrentQuery(),
-        savedBy: userName || 'Anonymous'
+        timestamp:       new Date().toISOString(),
+        savedBy:         userName || 'Anonymous',
+        query:           getCurrentQuery(),
+        title:           titleEl.textContent.trim(),
+        url:             href,
+        snippet:         snippetEl ? snippetEl.textContent.trim() : '',
+        domain:          (() => { try { return new URL(href).hostname; } catch { return ''; } })(),
+        position:        String(position),
+        // Page-level fields not available from search results
+        metaDescription: '',
+        ogTitle:         '',
+        ogDescription:   '',
+        ogType:          '',
+        author:          '',
+        publishDate:     '',
+        canonicalUrl:    '',
+        language:        '',
       };
+
+      const payload = buildPayload(fields, columns, fieldMapping);
 
       try {
         const res = await fetch(scriptUrl, {
@@ -74,27 +92,39 @@ function addSaveButtons() {
 
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-        btn.classList.remove('sts-saving');
-        btn.classList.add('sts-saved');
-        btn.innerHTML = `<span class="sts-icon">✅</span><span class="sts-label">Saved</span>`;
-        showToast(`✅ Saved: "${payload.title.slice(0, 60)}…"`, 'success');
+        btn.textContent = '✅';
+        showToast(`✅ Saved: "${fields.title.slice(0, 60)}…"`, 'success');
 
       } catch (err) {
         btn.disabled = false;
-        btn.classList.remove('sts-saving');
-        btn.classList.add('sts-error');
-        btn.innerHTML = `<span class="sts-icon">❌</span><span class="sts-label">Error</span>`;
+        btn.textContent = '❌';
         showToast('❌ Could not save. Check your Apps Script URL in options.', 'error');
-        setTimeout(() => {
-          btn.classList.remove('sts-error');
-          btn.innerHTML = `<span class="sts-icon">💾</span><span class="sts-label">Save</span>`;
-        }, 3000);
+        setTimeout(() => { btn.textContent = '💾'; }, 3000);
       }
     });
 
-    // Insert button after the title
     titleEl.parentElement.insertBefore(btn, titleEl.nextSibling);
   });
+}
+
+// Build the POST payload — dynamic (column-mapped array) or legacy fixed object
+function buildPayload(fields, columns, fieldMapping) {
+  if (columns && columns.length > 0) {
+    const row = columns.map(col => {
+      const key = fieldMapping && fieldMapping[col.id];
+      return key && fields[key] !== undefined ? fields[key] : '';
+    });
+    return { action: 'data', row };
+  }
+  // Legacy format — works with both old and new Apps Script
+  return {
+    id:      fields.id,
+    title:   fields.title,
+    url:     fields.url,
+    snippet: fields.snippet,
+    query:   fields.query,
+    savedBy: fields.savedBy,
+  };
 }
 
 // Toast notification
@@ -112,9 +142,7 @@ function showToast(message, type = 'info') {
 function init() {
   addSaveButtons();
 
-  // Re-run on DOM changes (lazy-loaded results, pagination)
   const observer = new MutationObserver(() => {
-    // Also detect SPA navigation
     if (location.href !== lastUrl) {
       lastUrl = location.href;
       setTimeout(addSaveButtons, 500);

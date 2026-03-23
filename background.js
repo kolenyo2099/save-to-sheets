@@ -12,6 +12,25 @@ async function generateId(prefix, userName) {
   return `${prefix}-${year}-${name}-${String(seq.count).padStart(3, '0')}`;
 }
 
+// Build the POST payload — dynamic (column-mapped array) or legacy fixed object
+function buildPayload(fields, columns, fieldMapping) {
+  if (columns && columns.length > 0) {
+    const row = columns.map(col => {
+      const key = fieldMapping && fieldMapping[col.id];
+      return key && fields[key] !== undefined ? fields[key] : '';
+    });
+    return { action: 'data', row };
+  }
+  return {
+    id:      fields.id,
+    title:   fields.title,
+    url:     fields.url,
+    snippet: fields.snippet,
+    query:   fields.query,
+    savedBy: fields.savedBy,
+  };
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
     id: 'sts-save-link',
@@ -26,14 +45,16 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  const { scriptUrl, userName, idPrefix } = await chrome.storage.sync.get(['scriptUrl', 'userName', 'idPrefix']);
+  const { scriptUrl, userName, idPrefix, columns, fieldMapping } =
+    await chrome.storage.sync.get(['scriptUrl', 'userName', 'idPrefix', 'columns', 'fieldMapping']);
 
   if (!scriptUrl) {
     flashBadge('!', '#c53030');
     return;
   }
 
-  let payload;
+  const id = await generateId(idPrefix, userName);
+  let fields;
 
   if (info.menuItemId === 'sts-save-link') {
     // Try to read the link's text content, set by context-tracker.js
@@ -44,30 +65,70 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
         func: () => window.__stsContext?.linkText ?? ''
       });
       linkText = result?.value ?? '';
-    } catch { /* restricted page (chrome://, pdf, etc.) — proceed without link text */ }
+    } catch { /* restricted page (chrome://, pdf, etc.) */ }
 
-    const id = await generateId(idPrefix, userName);
-    payload = {
+    const url = info.linkUrl;
+    fields = {
       id,
-      title: linkText,
-      url: info.linkUrl,
-      snippet: '',
-      query: '',
-      savedBy: userName || 'Anonymous'
+      timestamp:       new Date().toISOString(),
+      savedBy:         userName || 'Anonymous',
+      query:           '',
+      title:           linkText,
+      url,
+      snippet:         '',
+      domain:          (() => { try { return new URL(url).hostname; } catch { return ''; } })(),
+      position:        '',
+      metaDescription: '',
+      ogTitle:         '',
+      ogDescription:   '',
+      ogType:          '',
+      author:          '',
+      publishDate:     '',
+      canonicalUrl:    '',
+      language:        '',
     };
 
   } else {
-    // sts-save-page: tab.title is always available
-    const id = await generateId(idPrefix, userName);
-    payload = {
+    // sts-save-page — extract page metadata via scripting
+    let pageMeta = {};
+    try {
+      const [result] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => {
+          const getMeta = (name) =>
+            document.querySelector(`meta[name="${name}"]`)?.content ||
+            document.querySelector(`meta[property="${name}"]`)?.content || '';
+          return {
+            metaDescription: getMeta('description'),
+            ogTitle:         getMeta('og:title'),
+            ogDescription:   getMeta('og:description'),
+            ogType:          getMeta('og:type'),
+            author:          getMeta('author') || getMeta('article:author'),
+            publishDate:     getMeta('article:published_time') || getMeta('date') || getMeta('pubdate') || '',
+            canonicalUrl:    document.querySelector('link[rel="canonical"]')?.href || '',
+            language:        document.documentElement.lang || '',
+          };
+        }
+      });
+      pageMeta = result?.value || {};
+    } catch { /* restricted page */ }
+
+    const url = tab.url;
+    fields = {
       id,
-      title: tab.title || '',
-      url: tab.url,
-      snippet: '',
-      query: '',
-      savedBy: userName || 'Anonymous'
+      timestamp:       new Date().toISOString(),
+      savedBy:         userName || 'Anonymous',
+      query:           '',
+      title:           tab.title || '',
+      url,
+      snippet:         '',
+      domain:          (() => { try { return new URL(url).hostname; } catch { return ''; } })(),
+      position:        '',
+      ...pageMeta,
     };
   }
+
+  const payload = buildPayload(fields, columns, fieldMapping);
 
   let success = false;
   try {
@@ -109,7 +170,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       },
       args: [
         success
-          ? `\u2705 Saved: "${(payload.title || payload.url).slice(0, 60)}"`
+          ? `\u2705 Saved: "${(fields.title || fields.url).slice(0, 60)}"`
           : '\u274C Save failed. Check your Apps Script URL in options.',
         success
       ]

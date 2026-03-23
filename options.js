@@ -1,21 +1,163 @@
-// Load saved settings
-chrome.storage.sync.get(['scriptUrl', 'userName', 'idPrefix'], ({ scriptUrl, userName, idPrefix }) => {
-  if (scriptUrl) document.getElementById('scriptUrl').value = scriptUrl;
-  if (userName)  document.getElementById('userName').value  = userName;
-  if (idPrefix)  document.getElementById('idPrefix').value  = idPrefix;
+// ── Available fields definition ───────────────────────────────────────────────
+const AVAILABLE_FIELDS = [
+  { key: 'id',              label: 'ID (auto-generated)',     ctx: 'all' },
+  { key: 'timestamp',       label: 'Timestamp',               ctx: 'all' },
+  { key: 'savedBy',         label: 'Saved By',                ctx: 'all' },
+  { key: 'title',           label: 'Title',                   ctx: 'all' },
+  { key: 'url',             label: 'URL',                     ctx: 'all' },
+  { key: 'domain',          label: 'Domain',                  ctx: 'all' },
+  { key: 'query',           label: 'Search Query',            ctx: 'search' },
+  { key: 'snippet',         label: 'Snippet / Description',   ctx: 'search' },
+  { key: 'position',        label: 'Search Result Position',  ctx: 'search' },
+  { key: 'metaDescription', label: 'Meta Description',        ctx: 'page' },
+  { key: 'ogTitle',         label: 'OG Title',                ctx: 'page' },
+  { key: 'ogDescription',   label: 'OG Description',          ctx: 'page' },
+  { key: 'ogType',          label: 'Content Type (OG)',        ctx: 'page' },
+  { key: 'author',          label: 'Author',                  ctx: 'page' },
+  { key: 'publishDate',     label: 'Published Date',          ctx: 'page' },
+  { key: 'canonicalUrl',    label: 'Canonical URL',           ctx: 'page' },
+  { key: 'language',        label: 'Page Language',           ctx: 'page' },
+];
+
+const CTX_LABELS = {
+  all:    'All contexts',
+  search: 'Search only',
+  page:   'Save page',
+};
+
+// ── Auto-map a column name to a known field key ───────────────────────────────
+function autoMapField(name) {
+  const n = name.toLowerCase().trim();
+  const map = {
+    'id': 'id',
+    'timestamp': 'timestamp', 'date': 'timestamp', 'time': 'timestamp', 'saved at': 'timestamp',
+    'saved by': 'savedBy', 'savedby': 'savedBy', 'user': 'savedBy', 'name': 'savedBy',
+    'title': 'title', 'page title': 'title',
+    'url': 'url', 'link': 'url',
+    'domain': 'domain', 'source': 'domain', 'site': 'domain',
+    'query': 'query', 'search query': 'query', 'search': 'query',
+    'snippet': 'snippet', 'description': 'snippet', 'excerpt': 'snippet',
+    'position': 'position', 'rank': 'position', 'result position': 'position',
+    'meta description': 'metaDescription', 'meta desc': 'metaDescription',
+    'og title': 'ogTitle',
+    'og description': 'ogDescription',
+    'og type': 'ogType', 'content type': 'ogType', 'type': 'ogType',
+    'author': 'author', 'by': 'author',
+    'published date': 'publishDate', 'publish date': 'publishDate', 'published': 'publishDate',
+    'canonical url': 'canonicalUrl', 'canonical': 'canonicalUrl',
+    'language': 'language', 'lang': 'language', 'page language': 'language',
+  };
+  return map[n] || '';
+}
+
+// ── Column state (kept in memory, persisted on save / apply) ─────────────────
+let localColumns     = []; // [{id: string, name: string}]
+let localFieldMapping = {}; // {columnId: fieldKey}
+
+function genId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+// ── Render the column designer rows ──────────────────────────────────────────
+function renderColumns() {
+  const list = document.getElementById('columnsList');
+  list.innerHTML = '';
+
+  if (localColumns.length === 0) {
+    list.innerHTML = '<p class="hint" style="padding:6px 0 2px;">No columns defined yet. Add columns or detect from your sheet.</p>';
+    return;
+  }
+
+  localColumns.forEach(col => {
+    const row = document.createElement('div');
+    row.className = 'col-row';
+
+    // Column name input
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.className = 'col-name';
+    nameInput.placeholder = 'Column name';
+    nameInput.value = col.name;
+    nameInput.addEventListener('input', () => {
+      const c = localColumns.find(c => c.id === col.id);
+      if (c) c.name = nameInput.value;
+    });
+
+    // Field dropdown
+    const fieldSelect = document.createElement('select');
+    fieldSelect.className = 'col-field';
+
+    const noneOpt = document.createElement('option');
+    noneOpt.value = '';
+    noneOpt.textContent = '— unmapped —';
+    fieldSelect.appendChild(noneOpt);
+
+    AVAILABLE_FIELDS.forEach(f => {
+      const opt = document.createElement('option');
+      opt.value = f.key;
+      opt.textContent = f.label;
+      fieldSelect.appendChild(opt);
+    });
+
+    fieldSelect.value = localFieldMapping[col.id] || '';
+    fieldSelect.addEventListener('change', () => {
+      localFieldMapping[col.id] = fieldSelect.value;
+    });
+
+    // Remove button
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'col-remove';
+    removeBtn.title = 'Remove column';
+    removeBtn.textContent = '✕';
+    removeBtn.addEventListener('click', () => {
+      localColumns = localColumns.filter(c => c.id !== col.id);
+      delete localFieldMapping[col.id];
+      renderColumns();
+    });
+
+    row.appendChild(nameInput);
+    row.appendChild(fieldSelect);
+    row.appendChild(removeBtn);
+    list.appendChild(row);
+  });
+}
+
+// ── Render the field reference table ─────────────────────────────────────────
+function renderFieldsTable() {
+  const tbody = document.querySelector('#fieldsTable tbody');
+  AVAILABLE_FIELDS.forEach(f => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${f.key}</td>
+      <td>${f.label}</td>
+      <td><span class="ctx-badge ctx-${f.ctx}">${CTX_LABELS[f.ctx]}</span></td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+// ── Load saved settings ───────────────────────────────────────────────────────
+chrome.storage.sync.get(['scriptUrl', 'userName', 'idPrefix', 'columns', 'fieldMapping'], (data) => {
+  if (data.scriptUrl) document.getElementById('scriptUrl').value = data.scriptUrl;
+  if (data.userName)  document.getElementById('userName').value  = data.userName;
+  if (data.idPrefix)  document.getElementById('idPrefix').value  = data.idPrefix;
+
+  localColumns      = data.columns      || [];
+  localFieldMapping = data.fieldMapping || {};
+
+  renderColumns();
   updatePreview();
 });
 
-// Live ID preview (updates as user types in prefix or name)
+renderFieldsTable();
+
+// ── Live ID preview ───────────────────────────────────────────────────────────
 function updatePreview() {
   const prefix = document.getElementById('idPrefix').value.trim();
   const wrap   = document.getElementById('idPreviewWrap');
   const el     = document.getElementById('idPreview');
 
-  if (!prefix) {
-    wrap.style.display = 'none';
-    return;
-  }
+  if (!prefix) { wrap.style.display = 'none'; return; }
 
   const rawName = document.getElementById('userName').value.trim();
   const name    = rawName.split(/\s+/)[0] || 'You';
@@ -27,7 +169,7 @@ function updatePreview() {
 document.getElementById('idPrefix').addEventListener('input', updatePreview);
 document.getElementById('userName').addEventListener('input', updatePreview);
 
-// Save settings
+// ── Save settings ─────────────────────────────────────────────────────────────
 document.getElementById('saveBtn').addEventListener('click', () => {
   const scriptUrl = document.getElementById('scriptUrl').value.trim();
   const userName  = document.getElementById('userName').value.trim();
@@ -40,14 +182,17 @@ document.getElementById('saveBtn').addEventListener('click', () => {
   }
 
   const idPrefix = document.getElementById('idPrefix').value.trim();
-  chrome.storage.sync.set({ scriptUrl, userName, idPrefix }, () => {
-    status.textContent = '✅ Saved!';
-    status.style.color = '#188038';
-    setTimeout(() => status.textContent = '', 3000);
-  });
+  chrome.storage.sync.set(
+    { scriptUrl, userName, idPrefix, columns: localColumns, fieldMapping: localFieldMapping },
+    () => {
+      status.textContent = '✅ Saved!';
+      status.style.color = '#188038';
+      setTimeout(() => status.textContent = '', 3000);
+    }
+  );
 });
 
-// Test connection
+// ── Test connection ───────────────────────────────────────────────────────────
 document.getElementById('testBtn').addEventListener('click', async () => {
   const scriptUrl = document.getElementById('scriptUrl').value.trim();
   const userName  = document.getElementById('userName').value.trim();
@@ -62,13 +207,31 @@ document.getElementById('testBtn').addEventListener('click', async () => {
   status.textContent = '⏳ Testing…';
   status.style.color = '#5f6368';
 
-  const payload = {
-    title:   '🧪 Test entry from Save to Sheets',
-    url:     'https://example.com/test',
-    snippet: 'This is a test save to verify the connection is working.',
-    query:   'test query',
-    savedBy: userName || 'Anonymous'
-  };
+  let payload;
+  if (localColumns.length > 0) {
+    // Send a test row with the configured columns
+    const testFields = {
+      id: 'TEST-000', timestamp: new Date().toISOString(), savedBy: userName || 'Anonymous',
+      query: 'test query', title: '🧪 Test entry from Save to Sheets',
+      url: 'https://example.com/test', snippet: 'This is a test save to verify the connection.',
+      domain: 'example.com', position: '1',
+      metaDescription: '', ogTitle: '', ogDescription: '', ogType: '',
+      author: '', publishDate: '', canonicalUrl: '', language: '',
+    };
+    const row = localColumns.map(col => {
+      const key = localFieldMapping[col.id];
+      return key && testFields[key] !== undefined ? testFields[key] : '';
+    });
+    payload = { action: 'data', row };
+  } else {
+    payload = {
+      title: '🧪 Test entry from Save to Sheets',
+      url: 'https://example.com/test',
+      snippet: 'This is a test save to verify the connection is working.',
+      query: 'test query',
+      savedBy: userName || 'Anonymous',
+    };
+  }
 
   try {
     const res = await fetch(scriptUrl, {
@@ -87,7 +250,7 @@ document.getElementById('testBtn').addEventListener('click', async () => {
   }
 });
 
-// Copy script button
+// ── Copy script button ────────────────────────────────────────────────────────
 document.getElementById('copyScript').addEventListener('click', () => {
   const code = document.getElementById('scriptCode').textContent;
   navigator.clipboard.writeText(code).then(() => {
@@ -95,4 +258,135 @@ document.getElementById('copyScript').addEventListener('click', () => {
     msg.style.display = 'inline';
     setTimeout(() => msg.style.display = 'none', 2500);
   });
+});
+
+// ── Add column ────────────────────────────────────────────────────────────────
+document.getElementById('addColumnBtn').addEventListener('click', () => {
+  const id = genId();
+  localColumns.push({ id, name: '' });
+  renderColumns();
+  // Focus the new name input
+  const inputs = document.querySelectorAll('.col-name');
+  if (inputs.length > 0) inputs[inputs.length - 1].focus();
+});
+
+// ── Apply columns to Sheet ────────────────────────────────────────────────────
+document.getElementById('applyColumnsBtn').addEventListener('click', async () => {
+  const scriptUrl    = document.getElementById('scriptUrl').value.trim();
+  const columnsStatus = document.getElementById('columnsStatus');
+
+  if (!scriptUrl) {
+    columnsStatus.textContent = '⚠️ Enter your Apps Script URL first (step 3).';
+    columnsStatus.style.color = '#f9ab00';
+    return;
+  }
+
+  if (localColumns.length === 0) {
+    columnsStatus.textContent = '⚠️ Add at least one column first.';
+    columnsStatus.style.color = '#f9ab00';
+    return;
+  }
+
+  const headers = localColumns.map(c => c.name || '(unnamed)');
+
+  const confirmed = confirm(
+    `This will write column headers to row 1 of your sheet:\n\n` +
+    headers.map((h, i) => `  ${i + 1}. ${h}`).join('\n') +
+    `\n\nAny existing content in row 1 will be overwritten. Continue?`
+  );
+  if (!confirmed) return;
+
+  // Persist column config before sending to sheet
+  await new Promise(resolve => {
+    const idPrefix = document.getElementById('idPrefix').value.trim();
+    const userName = document.getElementById('userName').value.trim();
+    chrome.storage.sync.set(
+      { columns: localColumns, fieldMapping: localFieldMapping,
+        scriptUrl, userName, idPrefix },
+      resolve
+    );
+  });
+
+  columnsStatus.textContent = '⏳ Applying…';
+  columnsStatus.style.color = '#5f6368';
+
+  try {
+    const res = await fetch(scriptUrl, {
+      method: 'POST',
+      body: JSON.stringify({ action: 'setHeaders', headers }),
+      headers: { 'Content-Type': 'text/plain' }
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    columnsStatus.textContent = `✅ ${headers.length} column headers written to sheet!`;
+    columnsStatus.style.color = '#188038';
+    setTimeout(() => columnsStatus.textContent = '', 5000);
+  } catch (err) {
+    columnsStatus.textContent = `❌ Failed: ${err.message}`;
+    columnsStatus.style.color = '#c5221f';
+  }
+});
+
+// ── Detect columns from Sheet ─────────────────────────────────────────────────
+document.getElementById('detectColumnsBtn').addEventListener('click', async () => {
+  const scriptUrl    = document.getElementById('scriptUrl').value.trim();
+  const columnsStatus = document.getElementById('columnsStatus');
+
+  if (!scriptUrl) {
+    columnsStatus.textContent = '⚠️ Enter your Apps Script URL first (step 3).';
+    columnsStatus.style.color = '#f9ab00';
+    return;
+  }
+
+  columnsStatus.textContent = '⏳ Reading sheet headers…';
+  columnsStatus.style.color = '#5f6368';
+
+  try {
+    const res = await fetch(scriptUrl, {
+      method: 'POST',
+      body: JSON.stringify({ action: 'getHeaders' }),
+      headers: { 'Content-Type': 'text/plain' }
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    const data    = await res.json();
+    const headers = (data.headers || []).filter(h => String(h).trim() !== '');
+
+    if (headers.length === 0) {
+      columnsStatus.textContent = '⚠️ No headers found in row 1 of your sheet.';
+      columnsStatus.style.color = '#f9ab00';
+      return;
+    }
+
+    // Build new columns, reusing existing IDs where the name already matches
+    const newColumns = headers.map(name => {
+      const existing = localColumns.find(c => c.name === String(name));
+      return { id: existing ? existing.id : genId(), name: String(name) };
+    });
+
+    // Build new mapping: keep existing where IDs match, otherwise auto-detect
+    const newMapping = {};
+    newColumns.forEach(col => {
+      if (localFieldMapping[col.id]) {
+        newMapping[col.id] = localFieldMapping[col.id];
+      } else {
+        const auto = autoMapField(col.name);
+        if (auto) newMapping[col.id] = auto;
+      }
+    });
+
+    localColumns      = newColumns;
+    localFieldMapping = newMapping;
+    renderColumns();
+
+    columnsStatus.textContent =
+      `✅ Detected ${headers.length} column${headers.length !== 1 ? 's' : ''}. ` +
+      `Review the field mappings, then click Save settings.`;
+    columnsStatus.style.color = '#188038';
+    setTimeout(() => columnsStatus.textContent = '', 7000);
+
+  } catch (err) {
+    columnsStatus.textContent = `❌ Failed: ${err.message}`;
+    columnsStatus.style.color = '#c5221f';
+  }
 });
