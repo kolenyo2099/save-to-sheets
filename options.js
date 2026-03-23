@@ -423,3 +423,11 @@ document.getElementById('detectColumnsBtn').addEventListener('click', async () =
   columnsStatus.style.color = '#188038';
   setTimeout(() => columnsStatus.textContent = '', 7000);
 });
+
+// ── About modal ───────────────────────────────────────────────────────────────
+(function () {
+  const modal = document.getElementById('aboutModal');
+  document.getElementById('aboutBtn').addEventListener('click', () => modal.classList.add('open'));
+  document.getElementById('aboutClose').addEventListener('click', () => modal.classList.remove('open'));
+  modal.addEventListener('click', e => { if (e.target === modal) modal.classList.remove('open'); });
+}());
