@@ -1,6 +1,6 @@
 # 💾 Save to Sheets — Chrome Extension
 
-Capture web pages and Google search results to a shared Google Spreadsheet. Designed as a lightweight archiving tool for research, investigation, and collaboration.
+Capture web pages, Google search results, and tweets to a shared Google Spreadsheet. Designed as a lightweight archiving and bookmarking tool for research, investigation, and collaboration.
 
 ---
 
@@ -57,6 +57,22 @@ All saves go to the same Google Sheet. The **Saved By** column shows who capture
 
 ---
 
+## Available data fields
+
+The extension can capture different information depending on the source:
+
+**Common fields** (all sources):
+- `ID`, `Timestamp`, `Saved By`
+
+**Google Search results:**
+- `Query`, `Result Title`, `Result URL`, `Result Snippet`
+
+**Tweets (X.com):**
+- `Tweet ID`, `Tweet Text`, `Tweet Date/Time`, `Author Name`, `Author @handle`
+
+**Web pages:**
+- `Page Title`, `Page URL`, `Page Selection/Description`
+
 ## Default columns
 
 If you don't configure a custom structure, the extension uses these 7 columns:
@@ -64,15 +80,17 @@ If you don't configure a custom structure, the extension uses these 7 columns:
 | ID | Timestamp | Saved By | Query | Title | URL | Snippet |
 |---|---|---|---|---|---|---|
 
-The **Query** field is only populated when saving from Google Search results.
+This default works well for Google Search results. For tweets or web pages, you'll want to create a custom structure.
 
-**Customize:** Use the **Advanced Features** section in settings to design your own columns and choose which fields to capture.
+**Customize:** Use the **Advanced Features** section in settings to design your own columns and choose which fields to capture from each source.
 
 ---
 
 ## How it works
 
-**On Google Search:** The extension injects a 💾 floppy disk button next to each result. Click to save.
+**On Google Search:** The extension injects a 💾 floppy disk button next to each result. Click to save the result with query, title, URL, and snippet.
+
+**On X.com/Twitter:** The extension injects a 💾 floppy disk button in the action bar of each tweet. Click to save the tweet text, author, date, and URL.
 
 **On any web page:** Right-click → **Save page to Sheets** to capture the page title, URL, and text snippet.
 
@@ -80,7 +98,8 @@ Data goes to a Google Apps Script web app that **you deploy on your own Google a
 
 ### Advanced features
 
-- **Custom columns:** Design your spreadsheet structure in the settings. Map each column to captured data fields (title, URL, snippet, query, etc.)
-- **Auto-detect:** Import column headers from an existing sheet
-- **Field mapping:** Choose what information gets captured and where it goes in your sheet
-- **Default structure:** If not configured, defaults to: ID | Timestamp | Saved By | Query | Title | URL | Snippet
+- **Custom columns:** Design your spreadsheet structure in the settings. Create, edit, or remove columns, then map each to a data field from Google Search, tweets, web pages, or shared metadata.
+- **Auto-detect:** Import column headers from an existing sheet and reuse them in the extension settings.
+- **Field mapping:** Choose exactly what gets captured and where it goes. The extension only sends the fields you've mapped — nothing extra.
+- **Mixed sources:** Build one spreadsheet that mixes tweets, search results, and web pages. Each source populates its relevant fields; unmapped columns remain empty.
+- **Default structure:** If not configured, defaults to: ID | Timestamp | Saved By | Query | Title | URL | Snippet (designed for Google Search results)
