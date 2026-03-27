@@ -14,16 +14,25 @@ async function generateId(prefix, userName) {
   return `${prefix}-${year}-${name}-${String(seq.count).padStart(3, '0')}`;
 }
 
-// Build the POST payload — dynamic (column-mapped array) or legacy fixed object
+// Build the POST payload — dynamic (name-keyed rowData) or legacy fixed object
 function buildPayload(fields, columns, fieldMapping) {
   if (columns && columns.length > 0) {
-    const row = columns.map(col => {
-      const key = fieldMapping && fieldMapping[col.id];
-      return key && fields[key] !== undefined ? fields[key] : '';
+    const rowData = {};
+    columns.forEach(col => {
+      if (!col.name) return; // skip columns with no header name
+      const mapping = (fieldMapping && fieldMapping[col.id]) || '';
+      if (mapping.startsWith('__static__:')) {
+        // Literal value typed by the user in the options UI
+        rowData[col.name] = mapping.slice('__static__:'.length);
+      } else if (mapping && fields[mapping] !== undefined) {
+        // Map to a known extracted field
+        rowData[col.name] = fields[mapping];
+      }
+      // Unmapped columns are simply omitted; Apps Script leaves them blank
     });
-    return { action: 'data', row };
+    return { action: 'data', rowData };
   }
-  // Legacy format
+  // Legacy fixed format (no custom columns configured)
   return {
     id:      fields.id,
     title:   fields.title,

@@ -113,7 +113,7 @@ function renderColumns() {
 
     const noneOpt = document.createElement('option');
     noneOpt.value = '';
-    noneOpt.textContent = '— unmapped —';
+    noneOpt.textContent = '— leave blank —';
     fieldSelect.appendChild(noneOpt);
 
     AVAILABLE_FIELDS.forEach(f => {
@@ -123,9 +123,42 @@ function renderColumns() {
       fieldSelect.appendChild(opt);
     });
 
-    fieldSelect.value = localFieldMapping[col.id] || '';
+    // Static-value sentinel option
+    const staticOpt = document.createElement('option');
+    staticOpt.value = '__static__';
+    staticOpt.textContent = '— static value —';
+    fieldSelect.appendChild(staticOpt);
+
+    // Static value text input (shown only when __static__ is selected)
+    const staticInput = document.createElement('input');
+    staticInput.type = 'text';
+    staticInput.className = 'col-static';
+    staticInput.placeholder = 'Enter a fixed value…';
+    staticInput.style.display = 'none';
+
+    // Initialise from stored mapping
+    const storedMapping = localFieldMapping[col.id] || '';
+    if (storedMapping.startsWith('__static__:')) {
+      fieldSelect.value = '__static__';
+      staticInput.value = storedMapping.slice('__static__:'.length);
+      staticInput.style.display = '';
+    } else {
+      fieldSelect.value = storedMapping;
+    }
+
     fieldSelect.addEventListener('change', () => {
-      localFieldMapping[col.id] = fieldSelect.value;
+      if (fieldSelect.value === '__static__') {
+        staticInput.style.display = '';
+        localFieldMapping[col.id] = `__static__:${staticInput.value}`;
+        staticInput.focus();
+      } else {
+        staticInput.style.display = 'none';
+        localFieldMapping[col.id] = fieldSelect.value;
+      }
+    });
+
+    staticInput.addEventListener('input', () => {
+      localFieldMapping[col.id] = `__static__:${staticInput.value}`;
     });
 
     // Remove button
@@ -141,6 +174,7 @@ function renderColumns() {
 
     row.appendChild(nameInput);
     row.appendChild(fieldSelect);
+    row.appendChild(staticInput);
     row.appendChild(removeBtn);
     list.appendChild(row);
   });
@@ -242,11 +276,18 @@ document.getElementById('testBtn').addEventListener('click', async () => {
       metaDescription: '', ogTitle: '', ogDescription: '', ogType: '',
       author: '', publishDate: '', canonicalUrl: '', language: '',
     };
-    const row = localColumns.map(col => {
-      const key = localFieldMapping[col.id];
-      return key && testFields[key] !== undefined ? testFields[key] : '';
+    const rowData = {};
+    localColumns.forEach(col => {
+      if (!col.name) return;
+      const mapping = localFieldMapping[col.id] || '';
+      if (mapping.startsWith('__static__:')) {
+        rowData[col.name] = mapping.slice('__static__:'.length);
+      } else if (mapping && testFields[mapping] !== undefined) {
+        rowData[col.name] = testFields[mapping];
+      }
+      // unmapped columns are omitted — Apps Script leaves them blank
     });
-    payload = { action: 'data', row };
+    payload = { action: 'data', rowData };
   } else {
     payload = {
       title: '🧪 Test entry from Save to Sheets',

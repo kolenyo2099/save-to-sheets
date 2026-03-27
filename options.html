@@ -261,6 +261,26 @@
 
     .col-field:focus { border-color: #1a73e8; }
 
+    .col-static {
+      flex: 1.2;
+      min-width: 0;
+      padding: 8px 10px;
+      border: 1px dashed #f9ab00;
+      border-radius: 6px;
+      font-size: 13px;
+      background: #fffde7;
+      color: #202124;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .col-static:focus {
+      border-color: #f9ab00;
+      box-shadow: 0 0 0 2px rgba(249,171,0,0.2);
+    }
+
+    .col-static::placeholder { color: #b0a070; }
+
     .col-remove {
       flex-shrink: 0;
       padding: 7px 11px;

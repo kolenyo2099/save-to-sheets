@@ -49,7 +49,26 @@ function doPost(e) {
       }
       responseBody = JSON.stringify({ status: 'ok' });
 
-    // ── Action: data (dynamic column format) ─────────────────────────
+    // ── Action: data — name-keyed rowData (current format) ───────────
+    } else if (data.action === 'data' && data.rowData && typeof data.rowData === 'object') {
+      // Read the header row to find each column's position, then build the
+      // row array to append. Columns not mentioned in rowData stay blank,
+      // so they don't disturb values written by other tools in the same sheet.
+      const lastCol = sheet.getLastColumn();
+      const headers = lastCol > 0
+        ? sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(String)
+        : [];
+      const rowArr = headers.map(h => {
+        const trimmed = h.trim();
+        return (trimmed && Object.prototype.hasOwnProperty.call(data.rowData, trimmed))
+          ? data.rowData[trimmed]
+          : '';
+      });
+      sheet.appendRow(rowArr.length > 0 ? rowArr : Object.values(data.rowData));
+      SpreadsheetApp.flush();
+      responseBody = JSON.stringify({ status: 'ok' });
+
+    // ── Action: data — positional row array (legacy / fallback) ──────
     } else if (data.action === 'data' && Array.isArray(data.row)) {
       sheet.appendRow(data.row);
       SpreadsheetApp.flush();
