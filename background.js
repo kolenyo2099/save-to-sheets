@@ -96,6 +96,11 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       publishDate:     '',
       canonicalUrl:    '',
       language:        '',
+      tweetId:         '',
+      tweetText:       '',
+      authorName:      '',
+      authorUsername:  '',
+      tweetDate:       '',
     };
 
   } else {
@@ -134,6 +139,11 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       snippet:         '',
       domain:          (() => { try { return new URL(url).hostname; } catch { return ''; } })(),
       position:        '',
+      tweetId:         '',
+      tweetText:       '',
+      authorName:      '',
+      authorUsername:  '',
+      tweetDate:       '',
       ...pageMeta,
     };
   }

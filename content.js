@@ -43,6 +43,14 @@ function buildPayload(fields, columns, fieldMapping) {
   };
 }
 
+// Returns true if the extension context is still valid.
+// Content scripts become "orphaned" (context invalidated) when the extension
+// is reloaded while the tab is still open. Checking chrome.runtime.id is the
+// lightest way to detect this before making any API calls.
+function extensionContextAlive() {
+  try { return !!chrome.runtime?.id; } catch { return false; }
+}
+
 // Toast notification
 let toastEl = null;
 function showToast(message, type = 'info') {
@@ -94,6 +102,11 @@ function addSaveButtons() {
     btn.addEventListener('click', async (e) => {
       e.preventDefault();
       e.stopPropagation();
+
+      if (!extensionContextAlive()) {
+        showToast('🔄 Extension was reloaded — please refresh this page.', 'warn');
+        return;
+      }
 
       const { scriptUrl, userName, idPrefix, columns, fieldMapping } =
         await chrome.storage.sync.get(['scriptUrl', 'userName', 'idPrefix', 'columns', 'fieldMapping']);
@@ -216,6 +229,11 @@ function addTweetSaveButtons() {
     btn.addEventListener('click', async (e) => {
       e.preventDefault();
       e.stopPropagation();
+
+      if (!extensionContextAlive()) {
+        showToast('🔄 Extension was reloaded — please refresh this page.', 'warn');
+        return;
+      }
 
       const { scriptUrl, userName, idPrefix, columns, fieldMapping } =
         await chrome.storage.sync.get(['scriptUrl', 'userName', 'idPrefix', 'columns', 'fieldMapping']);

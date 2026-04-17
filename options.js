@@ -69,6 +69,31 @@ function genId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
 
+// ── Auto-save column config whenever it changes ───────────────────────────────
+// Prevents the "test works, real saves don't" problem that occurs when the user
+// configures columns but forgets to click Save settings before leaving the page.
+let _autoSaveTimer;
+let _autoSaveReady = false; // guard: skip saves triggered during initial load
+
+function scheduleAutoSave() {
+  if (!_autoSaveReady) return;
+  clearTimeout(_autoSaveTimer);
+  _autoSaveTimer = setTimeout(() => {
+    const scriptUrl = document.getElementById('scriptUrl').value.trim();
+    const userName  = document.getElementById('userName').value.trim();
+    const idPrefix  = document.getElementById('idPrefix').value.trim();
+    chrome.storage.sync.set(
+      { scriptUrl, userName, idPrefix, columns: localColumns, fieldMapping: localFieldMapping },
+      () => {
+        const el = document.getElementById('autoSaveStatus');
+        if (!el) return;
+        el.textContent = '✓ Saved';
+        setTimeout(() => { el.textContent = ''; }, 2000);
+      }
+    );
+  }, 400);
+}
+
 // ── Render the column designer rows ──────────────────────────────────────────
 function renderColumns() {
   const list = document.getElementById('columnsList');
@@ -105,6 +130,7 @@ function renderColumns() {
     nameInput.addEventListener('input', () => {
       const c = localColumns.find(c => c.id === col.id);
       if (c) c.name = nameInput.value;
+      scheduleAutoSave();
     });
 
     // Field dropdown
@@ -155,10 +181,12 @@ function renderColumns() {
         staticInput.style.display = 'none';
         localFieldMapping[col.id] = fieldSelect.value;
       }
+      scheduleAutoSave();
     });
 
     staticInput.addEventListener('input', () => {
       localFieldMapping[col.id] = `__static__:${staticInput.value}`;
+      scheduleAutoSave();
     });
 
     // Remove button
@@ -170,6 +198,7 @@ function renderColumns() {
       localColumns = localColumns.filter(c => c.id !== col.id);
       delete localFieldMapping[col.id];
       renderColumns();
+      scheduleAutoSave();
     });
 
     row.appendChild(nameInput);
@@ -205,6 +234,7 @@ chrome.storage.sync.get(['scriptUrl', 'userName', 'idPrefix', 'columns', 'fieldM
 
   renderColumns();
   updatePreview();
+  _autoSaveReady = true; // initial load complete — changes from here on should auto-save
 });
 
 renderFieldsTable();
@@ -227,28 +257,10 @@ function updatePreview() {
 document.getElementById('idPrefix').addEventListener('input', updatePreview);
 document.getElementById('userName').addEventListener('input', updatePreview);
 
-// ── Save settings ─────────────────────────────────────────────────────────────
-document.getElementById('saveBtn').addEventListener('click', () => {
-  const scriptUrl = document.getElementById('scriptUrl').value.trim();
-  const userName  = document.getElementById('userName').value.trim();
-  const status    = document.getElementById('status');
-
-  if (!scriptUrl) {
-    status.textContent = '⚠️ Please enter a URL.';
-    status.style.color = '#f9ab00';
-    return;
-  }
-
-  const idPrefix = document.getElementById('idPrefix').value.trim();
-  chrome.storage.sync.set(
-    { scriptUrl, userName, idPrefix, columns: localColumns, fieldMapping: localFieldMapping },
-    () => {
-      status.textContent = '✅ Saved!';
-      status.style.color = '#188038';
-      setTimeout(() => status.textContent = '', 3000);
-    }
-  );
-});
+// Top-level inputs also auto-save
+document.getElementById('scriptUrl').addEventListener('input', scheduleAutoSave);
+document.getElementById('userName').addEventListener('input', scheduleAutoSave);
+document.getElementById('idPrefix').addEventListener('input', scheduleAutoSave);
 
 // ── Test connection ───────────────────────────────────────────────────────────
 document.getElementById('testBtn').addEventListener('click', async () => {
@@ -265,6 +277,16 @@ document.getElementById('testBtn').addEventListener('click', async () => {
   status.textContent = '⏳ Testing…';
   status.style.color = '#5f6368';
 
+  // Persist current settings before testing so the test reflects exactly what
+  // real saves (which read from chrome.storage.sync) will do.
+  const idPrefix = document.getElementById('idPrefix').value.trim();
+  await new Promise(resolve => {
+    chrome.storage.sync.set(
+      { scriptUrl, userName, idPrefix, columns: localColumns, fieldMapping: localFieldMapping },
+      resolve
+    );
+  });
+
   let payload;
   if (localColumns.length > 0) {
     // Send a test row with the configured columns
@@ -275,6 +297,7 @@ document.getElementById('testBtn').addEventListener('click', async () => {
       domain: 'example.com', position: '1',
       metaDescription: '', ogTitle: '', ogDescription: '', ogType: '',
       author: '', publishDate: '', canonicalUrl: '', language: '',
+      tweetId: '', tweetText: '', authorName: '', authorUsername: '', tweetDate: '',
     };
     const rowData = {};
     localColumns.forEach(col => {
@@ -330,6 +353,7 @@ document.getElementById('addColumnBtn').addEventListener('click', () => {
   const id = genId();
   localColumns.push({ id, name: '' });
   renderColumns();
+  scheduleAutoSave();
   // Focus the new name input
   const inputs = document.querySelectorAll('.col-name');
   if (inputs.length > 0) inputs[inputs.length - 1].focus();
@@ -468,10 +492,11 @@ document.getElementById('detectColumnsBtn').addEventListener('click', async () =
   localColumns      = newColumns;
   localFieldMapping = newMapping;
   renderColumns();
+  scheduleAutoSave();
 
   columnsStatus.textContent =
     `✅ Detected ${headers.length} column${headers.length !== 1 ? 's' : ''}. ` +
-    `Review the field mappings, then click Save settings.`;
+    `Mappings saved automatically — review them and adjust if needed.`;
   columnsStatus.style.color = '#188038';
   setTimeout(() => columnsStatus.textContent = '', 7000);
 });
