@@ -17,18 +17,32 @@ const AVAILABLE_FIELDS = [
   { key: 'publishDate',     label: 'Published Date',          ctx: 'page' },
   { key: 'canonicalUrl',    label: 'Canonical URL',           ctx: 'page' },
   { key: 'language',        label: 'Page Language',           ctx: 'page' },
-  { key: 'tweetId',         label: 'Tweet ID',                ctx: 'tweet' },
-  { key: 'tweetText',       label: 'Tweet Text',              ctx: 'tweet' },
-  { key: 'authorName',      label: 'Author Display Name',     ctx: 'tweet' },
-  { key: 'authorUsername',  label: 'Author @handle',          ctx: 'tweet' },
-  { key: 'tweetDate',       label: 'Tweet Date/Time',         ctx: 'tweet' },
+  { key: 'tweetId',          label: 'Tweet ID',                ctx: 'tweet' },
+  { key: 'tweetText',        label: 'Tweet Text',              ctx: 'tweet' },
+  { key: 'authorName',       label: 'Author Display Name',     ctx: 'tweet' },
+  { key: 'authorUsername',   label: 'Author @handle',          ctx: 'tweet' },
+  { key: 'tweetDate',        label: 'Tweet Date/Time',         ctx: 'tweet' },
+  { key: 'videoId',          label: 'Video ID',                ctx: 'youtube' },
+  { key: 'channelName',      label: 'Channel Name',            ctx: 'youtube' },
+  { key: 'channelUrl',       label: 'Channel URL',             ctx: 'youtube' },
+  { key: 'viewCount',        label: 'View Count',              ctx: 'youtube' },
+  { key: 'videoDescription', label: 'Video Description',       ctx: 'youtube' },
+  { key: 'uploadDate',       label: 'Upload Date',             ctx: 'youtube' },
+  { key: 'duration',         label: 'Duration (ISO 8601)',      ctx: 'youtube' },
+  { key: 'fbPostId',         label: 'Post ID',                 ctx: 'facebook' },
+  { key: 'fbAuthorName',     label: 'Author Name',             ctx: 'facebook' },
+  { key: 'fbPostText',       label: 'Post Text',               ctx: 'facebook' },
+  { key: 'fbPostDate',       label: 'Post Date',               ctx: 'facebook' },
+  { key: 'fbReactionCount',  label: 'Reaction Count',          ctx: 'facebook' },
 ];
 
 const CTX_LABELS = {
-  all:    'All contexts',
-  search: 'Search only',
-  page:   'Save page',
-  tweet:  'Tweet (X.com)',
+  all:      'All contexts',
+  search:   'Search only',
+  page:     'Save page',
+  tweet:    'Tweet (X.com)',
+  youtube:  'YouTube',
+  facebook: 'Facebook',
 };
 
 // ── Auto-map a column name to a known field key ───────────────────────────────
@@ -57,44 +71,190 @@ function autoMapField(name) {
     'author display name': 'authorName', 'display name': 'authorName',
     'handle': 'authorUsername', 'username': 'authorUsername', '@handle': 'authorUsername', 'author handle': 'authorUsername',
     'tweet date': 'tweetDate', 'tweet time': 'tweetDate', 'tweet date/time': 'tweetDate',
+    'video id': 'videoId', 'videoid': 'videoId', 'youtube id': 'videoId',
+    'channel': 'channelName', 'channel name': 'channelName',
+    'channel url': 'channelUrl', 'channel link': 'channelUrl',
+    'views': 'viewCount', 'view count': 'viewCount',
+    'video description': 'videoDescription', 'video desc': 'videoDescription',
+    'upload date': 'uploadDate', 'uploaded': 'uploadDate', 'published date': 'uploadDate',
+    'duration': 'duration', 'length': 'duration', 'video length': 'duration',
+    'post id': 'fbPostId', 'fb post id': 'fbPostId', 'facebook post id': 'fbPostId',
+    'post text': 'fbPostText', 'fb post text': 'fbPostText', 'post content': 'fbPostText',
+    'post date': 'fbPostDate', 'fb post date': 'fbPostDate', 'facebook date': 'fbPostDate',
+    'reactions': 'fbReactionCount', 'reaction count': 'fbReactionCount', 'likes': 'fbReactionCount',
+    'fb author': 'fbAuthorName', 'facebook author': 'fbAuthorName', 'poster': 'fbAuthorName',
   };
   return map[n] || '';
 }
-
-// ── Column state (kept in memory, persisted on save / apply) ─────────────────
-let localColumns     = []; // [{id: string, name: string}]
-let localFieldMapping = {}; // {columnId: fieldKey}
 
 function genId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
 
-// ── Auto-save column config whenever it changes ───────────────────────────────
-// Prevents the "test works, real saves don't" problem that occurs when the user
-// configures columns but forgets to click Save settings before leaving the page.
+// ── Project storage schema ────────────────────────────────────────────────────
+// chrome.storage.sync layout:
+// {
+//   activeProjectId: string,
+//   projects: {
+//     [id]: {
+//       name: string,
+//       scriptUrl: string,
+//       sheetName: string,       // selected tab name, '' = first sheet
+//       userName: string,
+//       idPrefix: string,
+//       columns: Array,
+//       fieldMapping: Object
+//     }
+//   }
+// }
+
+let allProjects    = {};   // { [id]: projectConfig }
+let activeProjectId = '';
+let localColumns     = [];
+let localFieldMapping = {};
+
+function getActiveProject() {
+  return allProjects[activeProjectId] || {};
+}
+
+// ── Auto-save ─────────────────────────────────────────────────────────────────
 let _autoSaveTimer;
-let _autoSaveReady = false; // guard: skip saves triggered during initial load
+let _autoSaveReady = false;
 
 function scheduleAutoSave() {
   if (!_autoSaveReady) return;
   clearTimeout(_autoSaveTimer);
   _autoSaveTimer = setTimeout(() => {
-    const scriptUrl = document.getElementById('scriptUrl').value.trim();
-    const userName  = document.getElementById('userName').value.trim();
-    const idPrefix  = document.getElementById('idPrefix').value.trim();
-    chrome.storage.sync.set(
-      { scriptUrl, userName, idPrefix, columns: localColumns, fieldMapping: localFieldMapping },
-      () => {
-        const el = document.getElementById('autoSaveStatus');
-        if (!el) return;
-        el.textContent = '✓ Saved';
-        setTimeout(() => { el.textContent = ''; }, 2000);
-      }
-    );
+    persistActiveProject(() => {
+      const el = document.getElementById('autoSaveStatus');
+      if (!el) return;
+      el.textContent = '✓ Saved';
+      setTimeout(() => { el.textContent = ''; }, 2000);
+    });
   }, 400);
 }
 
-// ── Render the column designer rows ──────────────────────────────────────────
+function persistActiveProject(cb) {
+  if (!activeProjectId) return;
+  const scriptUrl = document.getElementById('scriptUrl').value.trim();
+  const userName  = document.getElementById('userName').value.trim();
+  const idPrefix  = document.getElementById('idPrefix').value.trim();
+  const sheetName = document.getElementById('sheetSelect')?.value || '';
+
+  allProjects[activeProjectId] = {
+    ...allProjects[activeProjectId],
+    scriptUrl, userName, idPrefix, sheetName,
+    columns: localColumns,
+    fieldMapping: localFieldMapping,
+  };
+
+  chrome.storage.sync.set({ activeProjectId, projects: allProjects }, cb || (() => {}));
+}
+
+// ── Project manager UI ────────────────────────────────────────────────────────
+function renderProjectDropdown() {
+  const sel = document.getElementById('projectSelect');
+  sel.innerHTML = '';
+  Object.entries(allProjects).forEach(([id, proj]) => {
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = proj.name || 'Untitled Project';
+    if (id === activeProjectId) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+function loadProjectIntoUI(id) {
+  const proj = allProjects[id] || {};
+  activeProjectId = id;
+
+  document.getElementById('scriptUrl').value = proj.scriptUrl || '';
+  document.getElementById('userName').value  = proj.userName  || '';
+  document.getElementById('idPrefix').value  = proj.idPrefix  || '';
+
+  localColumns      = proj.columns      || [];
+  localFieldMapping = proj.fieldMapping || {};
+
+  renderColumns();
+  updatePreview();
+
+  // Reset sheet dropdown and reload tabs if URL is set
+  resetSheetDropdown();
+  if (proj.scriptUrl) {
+    fetchSheetTabsAndRender(proj.scriptUrl, proj.sheetName || '');
+  }
+
+  document.getElementById('status').textContent        = '';
+  document.getElementById('columnsStatus').textContent = '';
+}
+
+function resetSheetDropdown() {
+  const wrap = document.getElementById('sheetSelectWrap');
+  const sel  = document.getElementById('sheetSelect');
+  if (sel) sel.innerHTML = '<option value="">Loading tabs…</option>';
+  wrap.style.display = 'none';
+}
+
+// ── Fetch available sheet tabs ────────────────────────────────────────────────
+async function fetchSheetTabsAndRender(scriptUrl, currentSheetName) {
+  const wrap   = document.getElementById('sheetSelectWrap');
+  const sel    = document.getElementById('sheetSelect');
+  const status = document.getElementById('sheetSelectStatus');
+
+  if (!scriptUrl) return;
+
+  sel.innerHTML = '<option value="">— loading tabs… —</option>';
+  wrap.style.display = '';
+  status.textContent = '';
+
+  try {
+    const res  = await fetch(scriptUrl);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); } catch { data = null; }
+
+    if (!data || !Array.isArray(data.sheets)) {
+      // Old script version — just allow manual typing
+      sel.innerHTML = '';
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = '— default sheet (upgrade script for tab list) —';
+      sel.appendChild(opt);
+      wrap.style.display = '';
+      return;
+    }
+
+    sel.innerHTML = '';
+    // Add "any" option using first sheet
+    const firstOpt = document.createElement('option');
+    firstOpt.value = '';
+    firstOpt.textContent = `— use default (${data.sheets[0] || 'Sheet1'}) —`;
+    sel.appendChild(firstOpt);
+
+    data.sheets.forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      if (name === currentSheetName) opt.selected = true;
+      sel.appendChild(opt);
+    });
+
+    if (!currentSheetName && data.sheets.length > 0) {
+      // leave "default" selected
+    }
+
+    wrap.style.display = '';
+    status.textContent = `${data.sheets.length} tab${data.sheets.length !== 1 ? 's' : ''} found`;
+    setTimeout(() => { status.textContent = ''; }, 3000);
+  } catch (err) {
+    sel.innerHTML = '<option value="">— could not load tabs —</option>';
+    wrap.style.display = '';
+    status.textContent = `⚠ ${err.message}`;
+  }
+}
+
+// ── Column designer ───────────────────────────────────────────────────────────
 function renderColumns() {
   const list = document.getElementById('columnsList');
   list.innerHTML = '';
@@ -121,7 +281,6 @@ function renderColumns() {
     const row = document.createElement('div');
     row.className = 'col-row';
 
-    // Column name input
     const nameInput = document.createElement('input');
     nameInput.type = 'text';
     nameInput.className = 'col-name';
@@ -133,7 +292,6 @@ function renderColumns() {
       scheduleAutoSave();
     });
 
-    // Field dropdown
     const fieldSelect = document.createElement('select');
     fieldSelect.className = 'col-field';
 
@@ -149,20 +307,17 @@ function renderColumns() {
       fieldSelect.appendChild(opt);
     });
 
-    // Static-value sentinel option
     const staticOpt = document.createElement('option');
     staticOpt.value = '__static__';
     staticOpt.textContent = '— static value —';
     fieldSelect.appendChild(staticOpt);
 
-    // Static value text input (shown only when __static__ is selected)
     const staticInput = document.createElement('input');
     staticInput.type = 'text';
     staticInput.className = 'col-static';
     staticInput.placeholder = 'Enter a fixed value…';
     staticInput.style.display = 'none';
 
-    // Initialise from stored mapping
     const storedMapping = localFieldMapping[col.id] || '';
     if (storedMapping.startsWith('__static__:')) {
       fieldSelect.value = '__static__';
@@ -189,7 +344,6 @@ function renderColumns() {
       scheduleAutoSave();
     });
 
-    // Remove button
     const removeBtn = document.createElement('button');
     removeBtn.className = 'col-remove';
     removeBtn.title = 'Remove column';
@@ -209,7 +363,7 @@ function renderColumns() {
   });
 }
 
-// ── Render the field reference table ─────────────────────────────────────────
+// ── Field reference table ─────────────────────────────────────────────────────
 function renderFieldsTable() {
   const tbody = document.querySelector('#fieldsTable tbody');
   AVAILABLE_FIELDS.forEach(f => {
@@ -222,22 +376,6 @@ function renderFieldsTable() {
     tbody.appendChild(tr);
   });
 }
-
-// ── Load saved settings ───────────────────────────────────────────────────────
-chrome.storage.sync.get(['scriptUrl', 'userName', 'idPrefix', 'columns', 'fieldMapping'], (data) => {
-  if (data.scriptUrl) document.getElementById('scriptUrl').value = data.scriptUrl;
-  if (data.userName)  document.getElementById('userName').value  = data.userName;
-  if (data.idPrefix)  document.getElementById('idPrefix').value  = data.idPrefix;
-
-  localColumns      = data.columns      || [];
-  localFieldMapping = data.fieldMapping || {};
-
-  renderColumns();
-  updatePreview();
-  _autoSaveReady = true; // initial load complete — changes from here on should auto-save
-});
-
-renderFieldsTable();
 
 // ── Live ID preview ───────────────────────────────────────────────────────────
 function updatePreview() {
@@ -254,18 +392,112 @@ function updatePreview() {
   wrap.style.display = 'block';
 }
 
+// ── Boot: load from storage ───────────────────────────────────────────────────
+chrome.storage.sync.get(['activeProjectId', 'projects'], (data) => {
+  allProjects     = data.projects || {};
+  activeProjectId = data.activeProjectId || '';
+
+  // If no projects exist yet, create a default one
+  if (Object.keys(allProjects).length === 0) {
+    const id = genId();
+    allProjects[id] = {
+      name: 'Project 1',
+      scriptUrl: '', sheetName: '', userName: '', idPrefix: '',
+      columns: [], fieldMapping: {},
+    };
+    activeProjectId = id;
+  }
+
+  // Ensure activeProjectId references a real project
+  if (!allProjects[activeProjectId]) {
+    activeProjectId = Object.keys(allProjects)[0];
+  }
+
+  renderProjectDropdown();
+  loadProjectIntoUI(activeProjectId);
+  renderFieldsTable();
+  _autoSaveReady = true;
+});
+
+// ── Project manager events ────────────────────────────────────────────────────
+document.getElementById('projectSelect').addEventListener('change', (e) => {
+  // Save current before switching
+  persistActiveProject(() => {
+    activeProjectId = e.target.value;
+    chrome.storage.sync.set({ activeProjectId });
+    loadProjectIntoUI(activeProjectId);
+  });
+});
+
+document.getElementById('newProjectBtn').addEventListener('click', () => {
+  const name = prompt('Name for the new project:', `Project ${Object.keys(allProjects).length + 1}`);
+  if (!name) return;
+  persistActiveProject(() => {
+    const id = genId();
+    allProjects[id] = {
+      name: name.trim(),
+      scriptUrl: '', sheetName: '', userName: '', idPrefix: '',
+      columns: [], fieldMapping: {},
+    };
+    activeProjectId = id;
+    chrome.storage.sync.set({ activeProjectId, projects: allProjects }, () => {
+      renderProjectDropdown();
+      loadProjectIntoUI(activeProjectId);
+    });
+  });
+});
+
+document.getElementById('renameProjectBtn').addEventListener('click', () => {
+  const current = allProjects[activeProjectId];
+  if (!current) return;
+  const name = prompt('Rename project to:', current.name);
+  if (!name) return;
+  current.name = name.trim();
+  chrome.storage.sync.set({ projects: allProjects }, () => {
+    renderProjectDropdown();
+  });
+});
+
+document.getElementById('deleteProjectBtn').addEventListener('click', () => {
+  const keys = Object.keys(allProjects);
+  if (keys.length <= 1) {
+    alert('You must keep at least one project.');
+    return;
+  }
+  const current = allProjects[activeProjectId];
+  if (!confirm(`Delete project "${current.name}"? This cannot be undone.`)) return;
+  delete allProjects[activeProjectId];
+  activeProjectId = Object.keys(allProjects)[0];
+  chrome.storage.sync.set({ activeProjectId, projects: allProjects }, () => {
+    renderProjectDropdown();
+    loadProjectIntoUI(activeProjectId);
+  });
+});
+
+// ── Input auto-save wiring ────────────────────────────────────────────────────
 document.getElementById('idPrefix').addEventListener('input', updatePreview);
 document.getElementById('userName').addEventListener('input', updatePreview);
-
-// Top-level inputs also auto-save
 document.getElementById('scriptUrl').addEventListener('input', scheduleAutoSave);
 document.getElementById('userName').addEventListener('input', scheduleAutoSave);
 document.getElementById('idPrefix').addEventListener('input', scheduleAutoSave);
+
+// When the user changes the sheet tab selection, auto-save
+document.getElementById('sheetSelect').addEventListener('change', scheduleAutoSave);
+
+// When URL is blurred (finished typing), attempt to fetch sheet tabs
+document.getElementById('scriptUrl').addEventListener('blur', () => {
+  const url = document.getElementById('scriptUrl').value.trim();
+  if (url) {
+    const currentSheetName = document.getElementById('sheetSelect')?.value || '';
+    fetchSheetTabsAndRender(url, currentSheetName);
+  }
+});
 
 // ── Test connection ───────────────────────────────────────────────────────────
 document.getElementById('testBtn').addEventListener('click', async () => {
   const scriptUrl = document.getElementById('scriptUrl').value.trim();
   const userName  = document.getElementById('userName').value.trim();
+  const sheetName = document.getElementById('sheetSelect')?.value || '';
   const status    = document.getElementById('status');
 
   if (!scriptUrl) {
@@ -277,19 +509,10 @@ document.getElementById('testBtn').addEventListener('click', async () => {
   status.textContent = '⏳ Testing…';
   status.style.color = '#5f6368';
 
-  // Persist current settings before testing so the test reflects exactly what
-  // real saves (which read from chrome.storage.sync) will do.
-  const idPrefix = document.getElementById('idPrefix').value.trim();
-  await new Promise(resolve => {
-    chrome.storage.sync.set(
-      { scriptUrl, userName, idPrefix, columns: localColumns, fieldMapping: localFieldMapping },
-      resolve
-    );
-  });
+  await new Promise(resolve => persistActiveProject(resolve));
 
   let payload;
   if (localColumns.length > 0) {
-    // Send a test row with the configured columns
     const testFields = {
       id: 'TEST-000', timestamp: new Date().toISOString(), savedBy: userName || 'Anonymous',
       query: 'test query', title: '🧪 Test entry from Save to Sheets',
@@ -298,6 +521,9 @@ document.getElementById('testBtn').addEventListener('click', async () => {
       metaDescription: '', ogTitle: '', ogDescription: '', ogType: '',
       author: '', publishDate: '', canonicalUrl: '', language: '',
       tweetId: '', tweetText: '', authorName: '', authorUsername: '', tweetDate: '',
+      videoId: '', channelName: '', channelUrl: '', viewCount: '',
+      videoDescription: '', uploadDate: '', duration: '',
+      fbPostId: '', fbAuthorName: '', fbPostText: '', fbPostDate: '', fbReactionCount: '',
     };
     const rowData = {};
     localColumns.forEach(col => {
@@ -308,9 +534,8 @@ document.getElementById('testBtn').addEventListener('click', async () => {
       } else if (mapping && testFields[mapping] !== undefined) {
         rowData[col.name] = testFields[mapping];
       }
-      // unmapped columns are omitted — Apps Script leaves them blank
     });
-    payload = { action: 'data', rowData };
+    payload = { action: 'data', rowData, sheetName };
   } else {
     payload = {
       title: '🧪 Test entry from Save to Sheets',
@@ -318,6 +543,7 @@ document.getElementById('testBtn').addEventListener('click', async () => {
       snippet: 'This is a test save to verify the connection is working.',
       query: 'test query',
       savedBy: userName || 'Anonymous',
+      sheetName,
     };
   }
 
@@ -327,11 +553,12 @@ document.getElementById('testBtn').addEventListener('click', async () => {
       body: JSON.stringify(payload),
       headers: { 'Content-Type': 'text/plain' }
     });
-
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
     status.textContent = '✅ Connection works! Check your sheet for the test row.';
     status.style.color = '#188038';
+
+    // Also load tabs if we haven't yet
+    fetchSheetTabsAndRender(scriptUrl, sheetName);
   } catch (err) {
     status.textContent = `❌ Failed: ${err.message}. Double-check your URL and that the script is deployed.`;
     status.style.color = '#c5221f';
@@ -354,14 +581,14 @@ document.getElementById('addColumnBtn').addEventListener('click', () => {
   localColumns.push({ id, name: '' });
   renderColumns();
   scheduleAutoSave();
-  // Focus the new name input
   const inputs = document.querySelectorAll('.col-name');
   if (inputs.length > 0) inputs[inputs.length - 1].focus();
 });
 
 // ── Apply columns to Sheet ────────────────────────────────────────────────────
 document.getElementById('applyColumnsBtn').addEventListener('click', async () => {
-  const scriptUrl    = document.getElementById('scriptUrl').value.trim();
+  const scriptUrl     = document.getElementById('scriptUrl').value.trim();
+  const sheetName     = document.getElementById('sheetSelect')?.value || '';
   const columnsStatus = document.getElementById('columnsStatus');
 
   if (!scriptUrl) {
@@ -369,7 +596,6 @@ document.getElementById('applyColumnsBtn').addEventListener('click', async () =>
     columnsStatus.style.color = '#f9ab00';
     return;
   }
-
   if (localColumns.length === 0) {
     columnsStatus.textContent = '⚠️ Add at least one column first.';
     columnsStatus.style.color = '#f9ab00';
@@ -377,24 +603,15 @@ document.getElementById('applyColumnsBtn').addEventListener('click', async () =>
   }
 
   const headers = localColumns.map(c => c.name || '(unnamed)');
-
+  const tabNote = sheetName ? ` in tab "${sheetName}"` : '';
   const confirmed = confirm(
-    `This will write column headers to row 1 of your sheet:\n\n` +
+    `This will write column headers to row 1 of your sheet${tabNote}:\n\n` +
     headers.map((h, i) => `  ${i + 1}. ${h}`).join('\n') +
     `\n\nAny existing content in row 1 will be overwritten. Continue?`
   );
   if (!confirmed) return;
 
-  // Persist column config before sending to sheet
-  await new Promise(resolve => {
-    const idPrefix = document.getElementById('idPrefix').value.trim();
-    const userName = document.getElementById('userName').value.trim();
-    chrome.storage.sync.set(
-      { columns: localColumns, fieldMapping: localFieldMapping,
-        scriptUrl, userName, idPrefix },
-      resolve
-    );
-  });
+  await new Promise(resolve => persistActiveProject(resolve));
 
   columnsStatus.textContent = '⏳ Applying…';
   columnsStatus.style.color = '#5f6368';
@@ -402,11 +619,10 @@ document.getElementById('applyColumnsBtn').addEventListener('click', async () =>
   try {
     const res = await fetch(scriptUrl, {
       method: 'POST',
-      body: JSON.stringify({ action: 'setHeaders', headers }),
+      body: JSON.stringify({ action: 'setHeaders', headers, sheetName }),
       headers: { 'Content-Type': 'text/plain' }
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
     columnsStatus.textContent = `✅ ${headers.length} column headers written to sheet!`;
     columnsStatus.style.color = '#188038';
     setTimeout(() => columnsStatus.textContent = '', 5000);
@@ -417,10 +633,9 @@ document.getElementById('applyColumnsBtn').addEventListener('click', async () =>
 });
 
 // ── Detect columns from Sheet ─────────────────────────────────────────────────
-// Uses a GET request (calls doGet in the Apps Script) — read-only, safe.
-// Requires the updated Apps Script from Step 2 to be deployed.
 document.getElementById('detectColumnsBtn').addEventListener('click', async () => {
   const scriptUrl     = document.getElementById('scriptUrl').value.trim();
+  const sheetName     = document.getElementById('sheetSelect')?.value || '';
   const columnsStatus = document.getElementById('columnsStatus');
 
   if (!scriptUrl) {
@@ -434,23 +649,18 @@ document.getElementById('detectColumnsBtn').addEventListener('click', async () =
 
   let data;
   try {
-    const res = await fetch(scriptUrl); // GET → calls doGet()
+    // Pass sheetName as a query param so doGet reads the right tab
+    const url  = sheetName ? `${scriptUrl}?sheetName=${encodeURIComponent(sheetName)}` : scriptUrl;
+    const res  = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
     const text = await res.text();
-    try {
-      data = JSON.parse(text);
-    } catch {
-      // Response is HTML, not JSON — script doesn't have doGet (old version)
-      data = null;
-    }
+    try { data = JSON.parse(text); } catch { data = null; }
   } catch (err) {
     columnsStatus.textContent = `❌ Network error: ${err.message}`;
     columnsStatus.style.color = '#c5221f';
     return;
   }
 
-  // Old script returns HTML error page (no doGet function)
   if (!data || !Array.isArray(data.headers)) {
     columnsStatus.innerHTML =
       '❌ Your Apps Script needs to be updated to support this feature. ' +
@@ -462,8 +672,26 @@ document.getElementById('detectColumnsBtn').addEventListener('click', async () =
     return;
   }
 
-  const headers = data.headers.map(String).filter(h => h.trim() !== '');
+  // Refresh the tab list from the same response, if available
+  if (Array.isArray(data.sheets)) {
+    const sel = document.getElementById('sheetSelect');
+    const current = sel?.value || sheetName;
+    sel.innerHTML = '';
+    const firstOpt = document.createElement('option');
+    firstOpt.value = '';
+    firstOpt.textContent = `— use default (${data.sheets[0] || 'Sheet1'}) —`;
+    sel.appendChild(firstOpt);
+    data.sheets.forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      if (name === current) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    document.getElementById('sheetSelectWrap').style.display = '';
+  }
 
+  const headers = data.headers.map(String).filter(h => h.trim() !== '');
   if (headers.length === 0) {
     columnsStatus.textContent =
       '⚠️ Row 1 of your sheet is empty — no headers to detect. ' +
@@ -472,13 +700,11 @@ document.getElementById('detectColumnsBtn').addEventListener('click', async () =
     return;
   }
 
-  // Build new columns, reusing existing IDs where the name already matches
   const newColumns = headers.map(name => {
     const existing = localColumns.find(c => c.name === name);
     return { id: existing ? existing.id : genId(), name };
   });
 
-  // Keep existing mappings where IDs match; otherwise auto-detect from name
   const newMapping = {};
   newColumns.forEach(col => {
     if (localFieldMapping[col.id]) {

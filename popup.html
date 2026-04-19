@@ -26,6 +26,25 @@
     .status-ok    { background: #e6f4ea; color: #188038; }
     .status-warn  { background: #fef7e0; color: #b06000; }
 
+    .project-wrap {
+      margin-bottom: 12px;
+    }
+    .project-wrap label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: #5f6368;
+      margin-bottom: 4px;
+    }
+    .project-wrap select {
+      width: 100%;
+      padding: 8px;
+      border-radius: 6px;
+      border: 1px solid #dadce0;
+      font-size: 13px;
+      font-family: inherit;
+    }
+
     .btn {
       display: block;
       width: 100%;
@@ -45,11 +64,16 @@
 <body>
   <div class="logo">💾</div>
   <h1>Save to Sheets</h1>
-  <p class="subtitle">Save Google results to a spreadsheet</p>
+  <p class="subtitle">Select your active project</p>
 
-  <div id="statusBox" class="status-row status-warn">⚙️ Not configured yet</div>
+  <div class="project-wrap" id="projectWrap" style="display:none">
+    <label for="activeProject">Active Project:</label>
+    <select id="activeProject"></select>
+  </div>
 
-  <button class="btn btn-primary" id="openOptions">Open Settings</button>
+  <div id="statusBox" class="status-row status-warn">⚙️ Loading...</div>
+
+  <button class="btn btn-primary" id="openOptions">Manage Projects & Settings</button>
 
   <script src="popup.js"></script>
 </body>

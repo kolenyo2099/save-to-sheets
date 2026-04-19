@@ -212,6 +212,53 @@
       margin: 20px 0;
     }
 
+    /* ── Project Manager ──────────────────────────────────── */
+
+    .project-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 24px;
+      background: white;
+      padding: 16px 20px;
+      border-radius: 12px;
+      border: 1px solid #dadce0;
+    }
+
+    .project-bar select {
+      flex: 1;
+      padding: 8px 12px;
+      border: 1px solid #dadce0;
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: inherit;
+      color: #202124;
+      background: white;
+      outline: none;
+    }
+
+    .project-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    /* ── Sheet Selection ──────────────────────────────────── */
+    .sheet-select-wrap {
+      margin-top: 16px;
+      background: #f8f9fa;
+      padding: 14px;
+      border-radius: 8px;
+      border: 1px solid #dadce0;
+    }
+    .sheet-select-wrap select {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #dadce0;
+      border-radius: 6px;
+      margin-top: 6px;
+      font-family: inherit;
+    }
+
     /* ── Column designer ──────────────────────────────────── */
 
     #columnsList {
@@ -447,6 +494,22 @@
     }
 
     .modal-close:hover { background: #1557b0; }
+
+    .modal-donate {
+      display: block;
+      margin: 16px auto 4px;
+      padding: 9px 20px;
+      border-radius: 8px;
+      background: #003262;
+      color: #fdb515;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: inherit;
+      text-decoration: none;
+      transition: background 0.15s;
+    }
+
+    .modal-donate:hover { background: #002244; }
   </style>
 </head>
 <body>
@@ -458,6 +521,17 @@
     <button class="about-btn" id="aboutBtn">About</button>
   </header>
 
+  <!-- Project Manager -->
+  <div class="project-bar">
+    <label for="projectSelect" style="margin:0; font-weight:600; color:#202124;">Active Project:</label>
+    <select id="projectSelect"></select>
+    <div class="project-actions">
+      <button class="btn btn-secondary" id="newProjectBtn" style="padding:6px 12px; font-size:13px;">New</button>
+      <button class="btn btn-secondary" id="renameProjectBtn" style="padding:6px 12px; font-size:13px;">Rename</button>
+      <button class="btn btn-secondary" id="deleteProjectBtn" style="padding:6px 12px; font-size:13px; color:#c5221f; border-color:#f5c6c5; background:#fff;">Delete</button>
+    </div>
+  </div>
+
   <!-- About modal -->
   <div class="modal-backdrop" id="aboutModal">
     <div class="modal">
@@ -465,6 +539,7 @@
       <h2>Save to Sheets</h2>
       <p>Made with Claude by <strong>Guillen Torres</strong><br>Human Rights Center, Berkeley School of Law.</p>
       <p>Comments? <a href="mailto:kolenyo@osinv.org">kolenyo [at] osinv.org</a></p>
+      <a class="modal-donate" id="aboutDonate" href="https://give.berkeley.edu/giftdetails?fund1=FU0718000" target="_blank" rel="noopener">Support the Human Rights Center</a>
       <button class="modal-close" id="aboutClose">Close</button>
     </div>
   </div>
@@ -503,14 +578,28 @@
       <li>Paste that URL into Step 3 below.</li>
     </ol>
 
-    <div class="script-block" id="scriptCode">function doGet(e) {
-  var sheet   = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    <div class="script-block" id="scriptCode">function getSheet(name) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (name) {
+    var s = ss.getSheetByName(name);
+    if (s) return s;
+  }
+  return ss.getSheets()[0];
+}
+
+function doGet(e) {
+  var ss     = SpreadsheetApp.getActiveSpreadsheet();
+  var sheets = ss.getSheets().map(function(s) { return s.getName() });
+
+  var requestedName = e && e.parameter && e.parameter.sheetName;
+  var sheet   = getSheet(requestedName);
   var lastCol = sheet.getLastColumn();
   var headers = lastCol > 0
     ? sheet.getRange(1, 1, 1, lastCol).getValues()[0]
     : [];
+
   return ContentService
-    .createTextOutput(JSON.stringify({ headers: headers }))
+    .createTextOutput(JSON.stringify({ sheets: sheets, headers: headers }))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
@@ -521,10 +610,14 @@ function doPost(e) {
   var responseBody;
 
   try {
-    var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
     var data  = JSON.parse(e.postData.contents);
+    var sheet = getSheet(data.sheetName);
 
-    if (data.action === 'getHeaders') {
+    if (data.action === 'getSheets') {
+      var names = SpreadsheetApp.getActiveSpreadsheet().getSheets().map(function(s){ return s.getName() });
+      responseBody = JSON.stringify({ status: 'ok', sheets: names });
+
+    } else if (data.action === 'getHeaders') {
       var lastCol = sheet.getLastColumn();
       var headers = lastCol > 0
         ? sheet.getRange(1, 1, 1, lastCol).getValues()[0]
@@ -554,6 +647,11 @@ function doPost(e) {
       SpreadsheetApp.flush();
       responseBody = JSON.stringify({ status: 'ok' });
 
+    } else if (data.action === 'data' && Array.isArray(data.row)) {
+      sheet.appendRow(data.row);
+      SpreadsheetApp.flush();
+      responseBody = JSON.stringify({ status: 'ok' });
+
     } else {
       sheet.appendRow([
         data.id      || '',
@@ -578,7 +676,7 @@ function doPost(e) {
 }
 
 function onOpen() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
   if (sheet.getLastRow() === 0) {
     sheet.appendRow(['ID', 'Timestamp', 'Saved By', 'Query', 'Title', 'URL', 'Snippet']);
     sheet.getRange(1, 1, 1, 7).setFontWeight('bold');
@@ -597,6 +695,12 @@ function onOpen() {
     <label for="scriptUrl">Web App URL</label>
     <input type="text" id="scriptUrl" placeholder="https://script.google.com/macros/s/…/exec">
     <p class="hint">This URL lets the extension write to your sheet. Keep it private — anyone with it can add rows.</p>
+
+    <div class="sheet-select-wrap" id="sheetSelectWrap" style="display:none">
+      <label for="sheetSelect" style="margin:0; font-weight:600;">Target Sheet Tab</label>
+      <select id="sheetSelect"></select>
+      <div id="sheetSelectStatus" style="font-size:12px; color:#188038; margin-top:6px;"></div>
+    </div>
 
     <div class="btn-row">
       <button class="btn btn-secondary" id="testBtn">🧪 Test connection</button>

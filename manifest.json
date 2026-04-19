@@ -12,7 +12,9 @@
       "matches": [
         "*://www.google.com/search*",
         "*://x.com/*",
-        "*://twitter.com/*"
+        "*://twitter.com/*",
+        "*://www.youtube.com/watch*",
+        "*://www.facebook.com/*"
       ],
       "js": ["content.js"],
       "css": ["content.css"]

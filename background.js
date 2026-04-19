@@ -13,7 +13,7 @@ async function generateId(prefix, userName) {
 }
 
 // Build the POST payload — dynamic (name-keyed rowData) or legacy fixed object
-function buildPayload(fields, columns, fieldMapping) {
+function buildPayload(fields, columns, fieldMapping, sheetName = '') {
   if (columns && columns.length > 0) {
     const rowData = {};
     columns.forEach(col => {
@@ -28,7 +28,7 @@ function buildPayload(fields, columns, fieldMapping) {
       }
       // Unmapped columns are simply omitted; Apps Script leaves them blank
     });
-    return { action: 'data', rowData };
+    return { action: 'data', rowData, sheetName };
   }
   // Legacy fixed format (no custom columns configured)
   return {
@@ -38,6 +38,7 @@ function buildPayload(fields, columns, fieldMapping) {
     snippet: fields.snippet,
     query:   fields.query,
     savedBy: fields.savedBy,
+    sheetName: sheetName,
   };
 }
 
@@ -55,8 +56,10 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  const { scriptUrl, userName, idPrefix, columns, fieldMapping } =
-    await chrome.storage.sync.get(['scriptUrl', 'userName', 'idPrefix', 'columns', 'fieldMapping']);
+  const storageData = await chrome.storage.sync.get(['activeProjectId', 'projects']);
+  const activeProjectId = storageData.activeProjectId || '';
+  const proj = (storageData.projects && storageData.projects[activeProjectId]) || {};
+  const { scriptUrl, userName, idPrefix, columns, fieldMapping, sheetName } = proj;
 
   if (!scriptUrl) {
     flashBadge('!', '#c53030');
@@ -148,7 +151,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     };
   }
 
-  const payload = buildPayload(fields, columns, fieldMapping);
+  const payload = buildPayload(fields, columns, fieldMapping, sheetName);
 
   let success = false;
   try {
