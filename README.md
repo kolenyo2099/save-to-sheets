@@ -76,7 +76,7 @@ The extension can capture different information depending on the source:
 **Facebook Posts:**
 - `Post ID`, `Post URL`, `Post Text`, `Author Name`, `Post Date`, `Reaction Count`
 
-**Web pages:**
+**Web pages, PDFs, and images:**
 - `Page Title`, `Page URL`, `Page Selection/Description`, `Meta Description`, `OG Title`, `OG Description`, `OG Type`, `Author`, `Publish Date`, `Canonical URL`, `Language`
 
 ## Default columns
@@ -102,7 +102,7 @@ This default works well for Google Search results. For tweets, videos, posts, or
 
 **On Facebook:** A 💾 button is added to the post action bar (on post-specific pages/permalinks). Click to save post content, author, and reaction counts.
 
-**On any web page:** Right-click → **Save page to Sheets** to capture the page title, URL, and text snippet.
+**On any web page, browser-displayed PDF, or image:** Right-click → **Save page to Sheets** to capture the page/PDF/image title and URL. For PDFs, the extension prompts you for the title before saving. For images, the filename is used as the title.
 
 Data goes to a Google Apps Script web app that **you deploy on your own Google account** — no third-party servers, no OAuth, no data leaves your control. Concurrent saves from multiple users are handled safely using `LockService`.
 
