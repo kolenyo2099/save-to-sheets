@@ -45,16 +45,60 @@ const CTX_LABELS = {
   facebook: 'Facebook',
 };
 
+// ── Default template ──────────────────────────────────────────────────────────
+// Mirrors the fixed 7-field legacy format background.js/apps-script.js fall back
+// to when no columns are configured — offered here as an explicit, editable
+// starting point instead of only an implicit empty-state.
+const DEFAULT_TEMPLATE = [
+  { name: 'ID',       field: 'id' },
+  { name: 'Timestamp', field: 'timestamp' },
+  { name: 'Saved By', field: 'savedBy' },
+  { name: 'Query',    field: 'query' },
+  { name: 'Title',    field: 'title' },
+  { name: 'URL',      field: 'url' },
+  { name: 'Snippet',  field: 'snippet' },
+];
+
+// ── HRC Archiver template ─────────────────────────────────────────────────────
+// The column schema the HRC archiver app reads. Only ID / URL / Title / Added At /
+// Source are populated by the extension at capture time; the rest are either user
+// workflow fields (Notes, Tags, Priority) or written by the archiver later
+// (Archived At, Result Path, Result Metadata, Locked By, Instance).
+// Status is intentionally left blank so the archiver treats each new row as pending.
+const HRC_TEMPLATE = [
+  { name: 'ID',              field: 'id' },
+  { name: 'URL',             field: 'url' },
+  { name: 'Title',           field: 'title' },
+  { name: 'Notes',           field: '' },
+  { name: 'Tags',            field: '' },
+  { name: 'Status',          field: '' },
+  { name: 'Priority',        field: '' },
+  { name: 'Added At',        field: 'timestamp' },
+  { name: 'Archived At',     field: '' },
+  { name: 'Result Path',     field: '' },
+  { name: 'Result Metadata', field: '' },
+  { name: 'Source',          field: 'domain' },
+  { name: 'Locked By',       field: '' },
+  { name: 'Instance',        field: '' },
+];
+const HRC_SHEET_NAME = 'Archive';
+
 // ── Auto-map a column name to a known field key ───────────────────────────────
 function autoMapField(name) {
   const n = name.toLowerCase().trim();
   const map = {
     'id': 'id',
     'timestamp': 'timestamp', 'date': 'timestamp', 'time': 'timestamp', 'saved at': 'timestamp',
+    'added at': 'timestamp', 'added': 'timestamp',
     'saved by': 'savedBy', 'savedby': 'savedBy', 'user': 'savedBy', 'name': 'savedBy',
     'title': 'title', 'page title': 'title',
     'url': 'url', 'link': 'url',
     'domain': 'domain', 'source': 'domain', 'site': 'domain',
+    // HRC Archiver workflow / archiver-managed columns — left blank at capture time.
+    // Status MUST stay unmapped so rows are written blank (= pending) for the archiver.
+    'notes': '', 'tags': '', 'status': '', 'priority': '',
+    'archived at': '', 'result path': '', 'result metadata': '',
+    'locked by': '', 'instance': '',
     'query': 'query', 'search query': 'query', 'search': 'query',
     'snippet': 'snippet', 'description': 'snippet', 'excerpt': 'snippet',
     'position': 'position', 'rank': 'position', 'result position': 'position',
@@ -583,6 +627,47 @@ document.getElementById('addColumnBtn').addEventListener('click', () => {
   scheduleAutoSave();
   const inputs = document.querySelectorAll('.col-name');
   if (inputs.length > 0) inputs[inputs.length - 1].focus();
+});
+
+// ── Apply a column template (shared by the Default and HRC preset buttons) ─────
+function applyColumnTemplate(template, { label, sheetName } = {}) {
+  const columnsStatus = document.getElementById('columnsStatus');
+
+  if (localColumns.length > 0 &&
+      !confirm(`Replace the current columns with the ${label} template?`)) {
+    return;
+  }
+
+  localColumns      = [];
+  localFieldMapping = {};
+  template.forEach(({ name, field }) => {
+    const id = genId();
+    localColumns.push({ id, name });
+    if (field) localFieldMapping[id] = field;
+  });
+
+  // Point at the matching worksheet tab if it's already in the dropdown.
+  const sheetSelect = document.getElementById('sheetSelect');
+  if (sheetSelect && sheetName) {
+    const hasTab = Array.from(sheetSelect.options).some(o => o.value === sheetName);
+    if (hasTab) sheetSelect.value = sheetName;
+  }
+
+  renderColumns();
+  scheduleAutoSave();
+
+  columnsStatus.textContent = `✅ ${label} template loaded. Click “Apply to Sheet” to write the headers.`;
+  columnsStatus.style.color = '#188038';
+}
+
+// ── Load Default template ───────────────────────────────────────────────────────
+document.getElementById('defaultPresetBtn').addEventListener('click', () => {
+  applyColumnTemplate(DEFAULT_TEMPLATE, { label: 'Default' });
+});
+
+// ── Load HRC Archiver template ────────────────────────────────────────────────
+document.getElementById('hrcPresetBtn').addEventListener('click', () => {
+  applyColumnTemplate(HRC_TEMPLATE, { label: 'HRC Archiver', sheetName: HRC_SHEET_NAME });
 });
 
 // ── Apply columns to Sheet ────────────────────────────────────────────────────

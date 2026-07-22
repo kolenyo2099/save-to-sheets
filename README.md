@@ -35,6 +35,8 @@ Capture web pages, Google search results, and tweets to a shared Google Spreadsh
 
 1. Go to **Advanced Features**
 2. Either:
+   - Click **Use Default template** to load the standard 7-column structure as editable columns,
+   - Click **Use HRC Archiver template** to load the schema the HRC archiver reads,
    - Click **Add column** to design your own structure, or
    - Click **Detect from Sheet** to import existing headers
 3. Map each column to a data field
@@ -42,6 +44,24 @@ Capture web pages, Google search results, and tweets to a shared Google Spreadsh
 5. Save settings
 
 If you skip Step 3, the extension uses the default 7-column structure.
+
+#### HRC Archiver template
+
+The **Use HRC Archiver template** button loads the 14-column schema the HRC
+archiver app expects: `ID · URL · Title · Notes · Tags · Status · Priority ·
+Added At · Archived At · Result Path · Result Metadata · Source · Locked By ·
+Instance`.
+
+The extension fills only the capture-time columns — **ID**, **URL**, **Title**,
+**Added At** (timestamp), and **Source** (domain). **Status** is left blank on
+purpose so the archiver picks the row up as *pending*. **Notes**, **Tags** and
+**Priority** are yours to fill in; **Archived At**, **Result Path**,
+**Result Metadata**, **Locked By** and **Instance** are written by the archiver.
+
+The template also targets the **Archive** worksheet if that tab exists. Point the
+extension and the archiver at the **same spreadsheet and tab**: the extension
+appends pending rows, the archiver reads them and fills in the rest — they don't
+conflict.
 
 ---
 
